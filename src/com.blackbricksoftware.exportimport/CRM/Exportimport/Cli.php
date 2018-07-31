@@ -1,43 +1,10 @@
-<?php
-/*
- +--------------------------------------------------------------------+
- | CiviCRM version 5                                                  |
- +--------------------------------------------------------------------+
- | Copyright Tech To The People http:tttp.eu (c) 2008                 |
- +--------------------------------------------------------------------+
- |                                                                    |
- | CiviCRM is free software; you can copy, modify, and distribute it  |
- | under the terms of the GNU Affero General Public License           |
- | Version 3, 19 November 2007 and the CiviCRM Licensing Exception.   |
- |                                                                    |
- | CiviCRM is distributed in the hope that it will be useful, but     |
- | WITHOUT ANY WARRANTY; without even the implied warranty of         |
- | MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.               |
- | See the GNU Affero General Public License for more details.        |
- |                                                                    |
- | You should have received a copy of the GNU Affero General Public   |
- | License and the CiviCRM Licensing Exception along                  |
- | with this program; if not, contact CiviCRM LLC                     |
- | at info[AT]civicrm[DOT]org. If you have questions about the        |
- | GNU Affero General Public License or the licensing of CiviCRM,     |
- | see the CiviCRM license FAQ at http://civicrm.org/licensing        |
- +--------------------------------------------------------------------+
- */
-
-/**
- * This files provides several classes for doing command line work with
- * CiviCRM. civicrm_cli is the base class. It's used by cli.php.
- *
- * In addition, there are several additional classes that inherit
- * civicrm_cli to do more precise functions.
- *
- */
+<?php 
 
 /**
  * base class for doing all command line operations via civicrm
  * used by cli.php
  */
-class civicrm_cli {
+class CRM_Exportimport_Cli {
   // required values that must be passed
   // via the command line
   var $_required_arguments = array('action', 'entity');
@@ -165,10 +132,10 @@ class civicrm_cli {
       }
 
       // parse the special args first
-      if ($arg == '-e' || $arg == '--entity') {
+      if ($arg == '--ieentity') {
         $this->_entity = $value;
       }
-      elseif ($arg == '-a' || $arg == '--action') {
+      elseif ($arg == '--ieaction') {
         $this->_action = $value;
       }
       elseif ($arg == '-s' || $arg == '--site') {
@@ -331,175 +298,6 @@ class civicrm_cli {
     // fixme, this should call some CRM_Core_Error:: function
     // that properly logs
     print "$error\n";
-  }
-
-}
-
-/**
- * class used by csv/export.php to export records from
- * the database in a csv file format.
- */
-class civicrm_cli_csv_exporter extends civicrm_cli {
-  var $separator = ',';
-
-  /**
-   */
-  public function __construct() {
-    $this->_required_arguments = array('entity');
-    parent::initialize();
-  }
-
-  /**
-   * Run the script.
-   */
-  public function run() {
-    if ($this->_semicolon) {
-      $this->separator = ';';
-    }
-
-    $out = fopen("php://output", 'w');
-    fputcsv($out, $this->columns, $this->separator, '"');
-
-    $this->row = 1;
-    $result = civicrm_api($this->_entity, 'Get', $this->_params);
-    $first = TRUE;
-    foreach ($result['values'] as $row) {
-      if ($first) {
-        $columns = array_keys($row);
-        fputcsv($out, $columns, $this->separator, '"');
-        $first = FALSE;
-      }
-      //handle values returned as arrays (i.e. custom fields that allow multiple selections) by inserting a control character
-      foreach ($row as &$field) {
-        if (is_array($field)) {
-          //convert to string
-          $field = implode($field, CRM_Core_DAO::VALUE_SEPARATOR) . CRM_Core_DAO::VALUE_SEPARATOR;
-        }
-      }
-      fputcsv($out, $row, $this->separator, '"');
-    }
-    fclose($out);
-    echo "\n";
-  }
-
-}
-
-/**
- * base class used by both civicrm_cli_csv_import
- * and civicrm_cli_csv_deleter to add or delete
- * records based on those found in a csv file
- * passed to the script.
- */
-class civicrm_cli_csv_file extends civicrm_cli {
-  var $header;
-  var $separator = ',';
-
-  /**
-   */
-  public function __construct() {
-    $this->_required_arguments = array('entity', 'file');
-    $this->_additional_arguments = array('f' => 'file');
-    parent::initialize();
-  }
-
-  /**
-   * Run CLI function.
-   */
-  public function run() {
-    $this->row = 1;
-    $handle = fopen($this->_file, "r");
-
-    if (!$handle) {
-      die("Could not open file: " . $this->_file . ". Please provide an absolute path.\n");
-    }
-
-    //header
-    $header = fgetcsv($handle, 0, $this->separator);
-    // In case fgetcsv couldn't parse the header and dumped the whole line in 1 array element
-    // Try a different separator char
-    if (count($header) == 1) {
-      $this->separator = ";";
-      rewind($handle);
-      $header = fgetcsv($handle, 0, $this->separator);
-    }
-
-    $this->header = $header;
-    while (($data = fgetcsv($handle, 0, $this->separator)) !== FALSE) {
-      // skip blank lines
-      if (count($data) == 1 && is_null($data[0])) {
-        continue;
-      }
-      $this->row++;
-      if ($this->row % 1000 == 0) {
-        // Reset PEAR_DB_DATAOBJECT cache to prevent memory leak
-        CRM_Core_DAO::freeResult();
-      }
-      $params = $this->convertLine($data);
-      $this->processLine($params);
-    }
-    fclose($handle);
-  }
-
-  /* return a params as expected */
-  /**
-   * @param $data
-   *
-   * @return array
-   */
-  public function convertLine($data) {
-    $params = array();
-    foreach ($this->header as $i => $field) {
-      //split any multiselect data, denoted with CRM_Core_DAO::VALUE_SEPARATOR
-      if (strpos($data[$i], CRM_Core_DAO::VALUE_SEPARATOR) !== FALSE) {
-        $data[$i] = explode(CRM_Core_DAO::VALUE_SEPARATOR, $data[$i]);
-        $data[$i] = array_combine($data[$i], $data[$i]);
-      }
-      $params[$field] = $data[$i];
-    }
-    $params['version'] = 3;
-    return $params;
-  }
-
-}
-
-/**
- * class for processing records to add
- * used by csv/import.php
- *
- */
-class civicrm_cli_csv_importer extends civicrm_cli_csv_file {
-  /**
-   * @param array $params
-   */
-  public function processline($params) {
-    $result = civicrm_api($this->_entity, 'Create', $params);
-    if ($result['is_error']) {
-      echo "\nERROR line " . $this->row . ": " . $result['error_message'] . "\n";
-    }
-    else {
-      echo "\nline " . $this->row . ": created " . $this->_entity . " id: " . $result['id'] . "\n";
-    }
-  }
-
-}
-
-/**
- * class for processing records to delete
- * used by csv/delete.php
- *
- */
-class civicrm_cli_csv_deleter extends civicrm_cli_csv_file {
-  /**
-   * @param array $params
-   */
-  public function processline($params) {
-    $result = civicrm_api($this->_entity, 'Delete', $params);
-    if ($result['is_error']) {
-      echo "\nERROR line " . $this->row . ": " . $result['error_message'] . "\n";
-    }
-    else {
-      echo "\nline " . $this->row . ": deleted\n";
-    }
   }
 
 }
